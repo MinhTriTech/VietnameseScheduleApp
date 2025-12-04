@@ -203,17 +203,22 @@ with c2:
     tab_calendar, tab_list, tab_edit = st.tabs(["🗓️ Lịch biểu", "📋 Danh sách", "🛠️ Chỉnh sửa"])
     
     # --- TAB 1: CALENDAR (GIỮ NGUYÊN) ---
+    # --- TAB 1: CALENDAR (Đã thêm chế độ xem Ngày) ---
     with tab_calendar:
         calendar_events = []
         for ev in db_events:
+            # Chỉ hiển thị nếu có thời gian (ev[2] là start_time)
             if ev[2]: 
                 calendar_events.append({
                     "id": ev[0],
                     "title": f"{ev[1]} ({ev[3]})" if ev[3] else ev[1],
                     "start": ev[2],
+                    # Tô màu đỏ nếu là sự kiện "họp", ngược lại màu xanh
                     "backgroundColor": "#3788d8" if "họp" not in ev[1].lower() else "#d8374d",
                     "borderColor": "transparent"
                 })
+        
+        # Chuyển đổi list Python sang chuỗi JSON để JS đọc được
         events_json = json.dumps(calendar_events)
 
         calendar_html = f"""
@@ -230,6 +235,9 @@ with c2:
                     .fc {{ font-size: 0.85em; }}
                     .fc-header-toolbar {{ margin-bottom: 0.5em !important; }}
                     .fc-toolbar-title {{ font-size: 1.1em !important; }}
+                    
+                    /* Tùy chỉnh nút bấm cho gọn */
+                    .fc-button {{ padding: 0.2em 0.5em !important; }}
                 </style>
             </head>
             <body>
@@ -240,12 +248,25 @@ with c2:
                         var calendar = new FullCalendar.Calendar(calendarEl, {{
                             locale: 'vi',
                             initialView: 'dayGridMonth',
-                            headerToolbar: {{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listWeek' }},
+                            // [CẬP NHẬT] Thêm 'timeGridDay' vào danh sách nút bên phải
+                            headerToolbar: {{ 
+                                left: 'prev,next today', 
+                                center: 'title', 
+                                right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' 
+                            }},
+                            buttonText: {{
+                                day: 'Ngày',    // Đổi tên hiển thị nút 'timeGridDay' thành 'Ngày'
+                                month: 'Tháng',
+                                week: 'Tuần',
+                                list: 'Lịch biểu'
+                            }},
                             events: {events_json},
                             height: '100%', 
                             expandRows: true,
-                            nowIndicator: true,
-                            eventTimeFormat: {{ hour: '2-digit', minute: '2-digit', hour12: false }}
+                            nowIndicator: true, // Hiển thị vạch đỏ chỉ giờ hiện tại
+                            eventTimeFormat: {{ hour: '2-digit', minute: '2-digit', hour12: false }},
+                            slotMinTime: "00:00:00", // Bắt đầu lịch ngày từ 0h sáng
+                            slotMaxTime: "23:59:00"  // Kết thúc lúc 11h59 đêm
                         }});
                         calendar.render();
                     }});
@@ -253,6 +274,7 @@ with c2:
             </body>
         </html>
         """
+        # Hiển thị lịch
         components.html(calendar_html, height=500, scrolling=False)
 
     # --- TAB 2: DANH SÁCH & IMPORT/EXPORT (Chỉ Xem & Nhập xuất) ---
