@@ -157,12 +157,44 @@ class NLPProcessor:
             if ("chiều" in text_lower or "tối" in text_lower or "pm" in text_lower) and hour < 12:
                 hour += 12
 
+        end_hour, end_minute = None, None
+        
+        # Regex tìm: "đến 10h", "tới 11:30", "start... - 15h"
+        # Tìm các từ khóa chỉ kết thúc
+        end_pattern = re.search(r"(?:đến|tới|-)\s*(\d{1,2})\s*(?:[:h]|giờ|gio)\s*(\d{0,2})", text_lower)
+        
+        if end_pattern:
+            e_h = int(end_pattern.group(1))
+            e_m_str = end_pattern.group(2)
+            e_m = int(e_m_str) if e_m_str and e_m_str.isdigit() else 0
+            
+            # Logic xử lý PM cho giờ kết thúc (VD: từ 9h đến 2h -> hiểu là 2h chiều)
+            if e_h < hour: 
+                e_h += 12
+            # Hoặc nếu start là PM thì end cũng nên là PM (trừ khi qua ngày, nhưng tạm bỏ qua case qua ngày)
+            elif hour >= 12 and e_h < 12:
+                e_h += 12
+                
+            end_hour, end_minute = e_h, e_m
+
         # --- BƯỚC 5: HỢP NHẤT & XỬ LÝ LỖI (COMPONENT 5) ---
         try:
-            final_time = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            result["start_time"] = final_time.isoformat()
+            final_start = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            result["start_time"] = final_start.isoformat()
+            
+            if end_hour is not None:
+                final_end = target_date.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+                # Kiểm tra nếu end < start (VD nhập sai), thì bỏ qua hoặc cộng thêm ngày (ở đây mình chọn bỏ qua end_time cho an toàn)
+                if final_end > final_start:
+                    result["end_time"] = final_end.isoformat()
+                else:
+                    result["end_time"] = None
+            else:
+                result["end_time"] = None # Null theo yêu cầu JSON
+                
         except ValueError:
             result["start_time"] = None
+            result["end_time"] = None
 
         return result
 

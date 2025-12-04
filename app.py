@@ -6,6 +6,7 @@ import time
 import threading
 import ctypes
 from datetime import datetime, timedelta
+import platform
 
 # --- IMPORT MODULE ---
 from database import init_db, add_event, get_all_events, delete_event
@@ -27,7 +28,7 @@ def check_reminders_loop():
             events = get_all_events()
             now = datetime.now()
             for ev in events:
-                ev_name, time_str, remind_min = ev[1], ev[2], ev[4] if ev[4] else 0
+                ev_name, time_str, remind_min = ev[1], ev[2], ev[5] if ev[5] else 0
                 if time_str:
                     event_time = datetime.fromisoformat(time_str)
                     remind_time = event_time - timedelta(minutes=remind_min)
@@ -103,24 +104,26 @@ db_events = get_all_events()
 with c1:
     with st.container(border=True):
         st.caption("**Thêm sự kiện**")
-        
-        # --- LOGIC XÁC NHẬN (Nằm trên form để dễ thấy) ---
+
+        # --- LOGIC XÁC NHẬN (GIỮ LẠI ĐOẠN NÀY VÌ NÓ XỊN HƠN) ---
         if 'pending_event' in st.session_state:
             pending = st.session_state['pending_event']
             
             # [MỚI]: Chuyển đổi format thời gian cho dễ đọc
-            # 1. Parse từ chuỗi ISO sang đối tượng datetime
-            dt_obj = datetime.fromisoformat(pending['start_time'])
-            # 2. Format sang kiểu Việt Nam: Giờ:Phút:Giây Ngày-Tháng-Năm
-            # %H: Giờ (24h), %M: Phút, %S: Giây, %d: Ngày, %m: Tháng, %Y: Năm
-            vn_time_str = dt_obj.strftime("%H:%M:%S %d-%m-%Y")
+            try:
+                dt_obj = datetime.fromisoformat(pending['start_time'])
+                vn_time_str = dt_obj.strftime("%H:%M:%S %d-%m-%Y")
+            except ValueError:
+                vn_time_str = pending['start_time']
 
-            # Hiển thị cảnh báo với thời gian đã format
-            st.warning(f"⚠️ Sự kiện này đã qua: **{vn_time_str}**\n\nBạn có chắc muốn lưu?")
+            # Lấy thông báo lỗi (nếu có) hoặc dùng mặc định
+            warning_text = pending.get('warning_msg', f"⚠️ Sự kiện này đã qua: **{vn_time_str}**")
+            
+            st.warning(f"{warning_text}\n\nBạn có chắc muốn lưu?")
             
             col_yes, col_no = st.columns(2)
-            if col_yes.button("✅ Vẫn lưu", use_container_width=True):
-                # ... (Phần logic lưu bên dưới giữ nguyên) ...
+            # Thêm key để tránh lỗi trùng lặp nếu lỡ có nút khác giống tên
+            if col_yes.button("✅ Vẫn lưu", use_container_width=True, key="btn_confirm_yes"):
                 add_event(pending)
                 
                 new_card = {
@@ -133,11 +136,11 @@ with c1:
                 st.session_state['recent_added'].append(new_card)
                 
                 del st.session_state['pending_event']
-                st.success("Đã lưu sự kiện quá khứ!")
+                st.success("Đã lưu sự kiện!")
                 time.sleep(0.5)
                 st.rerun()
                 
-            if col_no.button("❌ Hủy", use_container_width=True):
+            if col_no.button("❌ Hủy", use_container_width=True, key="btn_confirm_no"):
                 del st.session_state['pending_event']
                 st.rerun()
 
@@ -156,21 +159,34 @@ with c1:
                         event_time = datetime.fromisoformat(extracted_data['start_time'])
                         now = datetime.now()
                         
-                        # KIỂM TRA THỜI GIAN
+                        # Import hàm check conflict mới
+                        from database import check_overlap
+                        is_conflict, conflict_name = check_overlap(extracted_data['start_time'], extracted_data.get('end_time'))
+                        
+                        # LOGIC KIỂM TRA: Quá khứ HOẶC Trùng lịch
+                        warning_msg = ""
                         if event_time < now:
-                            # Nếu là quá khứ -> Lưu vào session chờ xác nhận -> Rerun để hiện cảnh báo
+                            warning_msg = f"⚠️ Sự kiện này đã qua: **{event_time.strftime('%H:%M %d-%m-%Y')}**"
+                        
+                        if is_conflict:
+                            conflict_txt = f"\n\n⛔ **TRÙNG LỊCH:** Đang cấn với sự kiện **'{conflict_name}'**."
+                            warning_msg += conflict_txt
+                        
+                        # Nếu có cảnh báo (Quá khứ hoặc Trùng) -> Đưa vào Pending để xác nhận
+                        if warning_msg:
+                            extracted_data['warning_msg'] = warning_msg # Lưu lời nhắc để hiển thị
                             st.session_state['pending_event'] = extracted_data
                             st.rerun()
                         else:
-                            # Nếu là tương lai -> Lưu luôn như cũ
+                            # Tương lai & Không trùng -> Lưu luôn
                             add_event(extracted_data)
-                            
+                            # ... (Giữ nguyên phần thêm vào recent_added) ...
                             new_card = {
-                                "event": extracted_data.get('event', 'Sự kiện mới'),
+                                "event": extracted_data.get('event'),
                                 "start_time": extracted_data.get('start_time'),
-                                "end_time": extracted_data.get('end_time', None),
-                                "location": extracted_data.get('location', ''),
-                                "reminder_minutes": extracted_data.get('reminder_minutes', 0)
+                                "end_time": extracted_data.get('end_time'), # Thêm dòng này
+                                "location": extracted_data.get('location'),
+                                "reminder_minutes": extracted_data.get('reminder_minutes')
                             }
                             st.session_state['recent_added'].append(new_card)
                             st.success(f"✅ Xong: {extracted_data['event']}")
@@ -266,7 +282,7 @@ with c2:
                             nowIndicator: true, // Hiển thị vạch đỏ chỉ giờ hiện tại
                             eventTimeFormat: {{ hour: '2-digit', minute: '2-digit', hour12: false }},
                             slotMinTime: "00:00:00", // Bắt đầu lịch ngày từ 0h sáng
-                            slotMaxTime: "23:59:00"  // Kết thúc lúc 11h59 đêm
+                            slotMaxTime: "23:59:59"  // Kết thúc lúc 11h59 đêm
                         }});
                         calendar.render();
                     }});
@@ -310,9 +326,9 @@ with c2:
                         item = {
                             "event": row[1],
                             "start_time": row[2],
-                            "end_time": None,
-                            "location": row[3] if row[3] else "",
-                            "reminder_minutes": row[4] if row[4] else 0
+                            "end_time": row[3],
+                            "location": row[4] if row[4] else "",
+                            "reminder_minutes": row[5] if row[5] else 0
                         }
                         export_data.append(item)
                     json_backup = json.dumps(export_data, ensure_ascii=False, indent=2)
@@ -359,8 +375,12 @@ with c2:
             st.markdown("#### 📋 Danh sách sự kiện")
             search_term = st.text_input("🔍 Tìm nhanh", placeholder="Nhập từ khóa...", label_visibility="collapsed")
             
-            df = pd.DataFrame(db_events, columns=["ID", "Sự kiện", "Thời gian (ISO)", "Địa điểm", "Nhắc (phút)"])
-            df["Thời gian"] = df["Thời gian (ISO)"].apply(
+            # [FIX] Thêm cột "Thời gian kết thúc" vào cuối danh sách columns
+            df = pd.DataFrame(db_events, columns=["ID", "Sự kiện", "Thời gian bắt đầu", "Thời gian kết thúc", "Địa điểm", "Nhắc (phút)"])
+            df["Thời gian bắt đầu"] = df["Thời gian bắt đầu"].apply(
+                lambda x: datetime.fromisoformat(x).strftime("%H:%M %d-%m-%Y") if x else ""
+            )
+            df["Thời gian kết thúc"] = df["Thời gian kết thúc"].apply(
                 lambda x: datetime.fromisoformat(x).strftime("%H:%M %d-%m-%Y") if x else ""
             )
 
@@ -368,7 +388,7 @@ with c2:
                 df = df[df["Sự kiện"].str.contains(search_term, case=False, na=False)]
 
             st.dataframe(
-                df[["ID", "Sự kiện", "Thời gian", "Địa điểm", "Nhắc (phút)"]], 
+                df[["ID", "Sự kiện", "Thời gian bắt đầu", "Thời gian kết thúc", "Địa điểm", "Nhắc (phút)"]], 
                 height=400, # Tăng chiều cao vì đã bỏ phần edit ở dưới
                 use_container_width=True, 
                 hide_index=True,
@@ -385,7 +405,8 @@ with c2:
     with tab_edit:
         if db_events:
             # Cần tạo lại DF ở đây để lấy dữ liệu cho form
-            df_edit = pd.DataFrame(db_events, columns=["ID", "Sự kiện", "Thời gian (ISO)", "Địa điểm", "Nhắc (phút)"])
+            # [FIX] Thêm cột "Thời gian kết thúc" tương tự
+            df_edit = pd.DataFrame(db_events, columns=["ID", "Sự kiện", "Thời gian bắt đầu", "Thời gian kết thúc", "Địa điểm", "Nhắc (phút)"])
             
             # Tạo list hiển thị trong Selectbox cho dễ chọn: "ID - Tên sự kiện"
             options = df_edit.apply(lambda x: f"{x['ID']} - {x['Sự kiện']}", axis=1).tolist()
@@ -405,15 +426,23 @@ with c2:
                     new_loc = c_e2.text_input("Địa điểm", value=current_row["Địa điểm"] if current_row["Địa điểm"] else "")
                     
                     c_e3, c_e4 = st.columns(2)
-                    new_time = c_e3.text_input("Thời gian (ISO)", value=current_row["Thời gian (ISO)"], help="Format: YYYY-MM-DDTHH:MM:SS")
-                    new_remind = c_e4.number_input("Nhắc trước (phút)", value=int(current_row["Nhắc (phút)"]), min_value=0)
+                    new_start_time = c_e3.text_input("Thời gian bắt đầu (Ví dụ: 2025-12-05T14:30)", value=current_row["Thời gian bắt đầu"], help="Format: YYYY-MM-DDTHH:MM:SS")
+                    new_end_time = c_e4.text_input("Thời gian kết thúc (Ví dụ: 2025-12-05T15:30)", value=current_row["Thời gian kết thúc"], help="Format: YYYY-MM-DDTHH:MM:SS")
+                    
+                    c_e5, c_e6 = st.columns(2)
+                    # [FIX] Kiểm tra nếu giá trị là NaN thì gán bằng 0 để tránh lỗi crash
+                    val_remind = current_row["Nhắc (phút)"]
+                    safe_remind = int(val_remind) if pd.notna(val_remind) else 0
+                    
+                    new_remind = c_e5.number_input("Nhắc trước (phút)", value=safe_remind, min_value=0)
                     
                     # Nút Cập nhật
                     if st.form_submit_button("Lưu thay đổi", type="primary", use_container_width=True):
                         from database import update_event
                         try:
-                            datetime.fromisoformat(new_time)
-                            update_event(selected_id, new_name, new_time, new_loc, new_remind)
+                            datetime.fromisoformat(new_start_time)
+                            datetime.fromisoformat(new_end_time)
+                            update_event(selected_id, new_name, new_start_time, new_end_time, new_loc, new_remind)
                             st.success("✅ Đã cập nhật thành công!")
                             time.sleep(2)
                             st.rerun()
