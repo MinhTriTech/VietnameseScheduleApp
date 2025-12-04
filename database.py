@@ -44,6 +44,18 @@ def add_event(data):
     
     conn.close()
 
+def update_event(event_id, new_name, new_time, new_location, new_reminder):
+    """Cập nhật thông tin sự kiện (Chức năng Sửa)"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''
+        UPDATE events 
+        SET event_name=?, start_time=?, location=?, reminder_minutes=?
+        WHERE id=?
+    ''', (new_name, new_time, new_location, new_reminder, event_id))
+    conn.commit()
+    conn.close()
+
 def get_all_events():
     """Lấy danh sách tất cả sự kiện (để hiển thị lên lịch)"""
     conn = sqlite3.connect(DB_NAME)
@@ -64,19 +76,5 @@ def delete_event(event_id):
 
 # --- CHẠY THỬ (TEST) ---
 if __name__ == "__main__":
-    # 1. Tạo file database
     init_db()
-    print("Đã khởi tạo database thành công!")
-    
-    # 2. Thử thêm dữ liệu giả
-    dummy_data = {
-        'event': 'Test Database',
-        'start_time': '2025-12-05T08:00:00',
-        'location': 'Phòng Lab',
-        'reminder_minutes': 10
-    }
-    add_event(dummy_data)
-    
-    # 3. In ra xem thử có gì trong đó chưa
-    events = get_all_events()
-    print("Danh sách sự kiện hiện có:", events)
+    print("Database ready!")
