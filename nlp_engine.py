@@ -142,8 +142,22 @@ class NLPProcessor:
         target_date = now
         has_date_specified = False 
 
-        # 4.1. Xử lý ngày tương đối 
-        if "hôm qua" in text_lower:
+        # 4.1. Xử lý ngày cụ thể 
+        # Bắt định dạng dd/mm hoặc dd-mm
+        date_pattern = re.search(r"\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{4}))?\b", text_lower)
+        
+        if date_pattern:
+            try:
+                d = int(date_pattern.group(1))
+                m = int(date_pattern.group(2))
+                y = int(date_pattern.group(3)) if date_pattern.group(3) else now.year
+                target_date = datetime(y, m, d)
+                has_date_specified = True
+            except ValueError:
+                pass # Ngày không hợp lệ (VD: 30/2)
+
+        # 4.2. Xử lý ngày tương đối
+        elif "hôm qua" in text_lower:
             target_date = now - timedelta(days=1)
             has_date_specified = True
         elif "ngày mai" in text_lower or "sáng mai" in text_lower or "trưa mai" in text_lower or "chiều mai" in text_lower or "tối mai" in text_lower:
@@ -157,13 +171,9 @@ class NLPProcessor:
         if any(x in text_lower for x in ["hôm nay", "chiều nay", "tối nay", "sáng nay", "trưa nay"]):
             has_date_specified = True 
 
-        # 4.2. Xử lý thứ trong tuần 
+        # 4.3. Xử lý thứ trong tuần
         if not has_date_specified:
-            weekday_map = {
-                "hai": 0, "2": 0, "ba": 1, "3": 1, "tư": 2, "4": 2, 
-                "năm": 3, "5": 3, "sáu": 4, "6": 4, "bảy": 5, "7": 5
-            }
-            # Tìm pattern: "thứ 2", "thứ hai", "chủ nhật"
+            weekday_map = {"hai": 0, "2": 0, "ba": 1, "3": 1, "tư": 2, "4": 2, "năm": 3, "5": 3, "sáu": 4, "6": 4, "bảy": 5, "7": 5}
             wk_match = re.search(r"thứ\s+([2-7]|hai|ba|tư|năm|sáu|bảy)|(chủ nhật|cn)", text_lower)
             target_wk = None
             
@@ -187,7 +197,7 @@ class NLPProcessor:
                 target_date = now + timedelta(days=days_ahead)
                 has_date_specified = True
 
-        # 4.3. Xử lý giờ 
+        # 4.4. Xử lý giờ
         # Pattern: Tìm giờ dạng số (7h, 14:30)
         time_pattern = re.search(r"(\d{1,2})\s*(?:[:h]|giờ|gio)\s*(\d{0,2})", text_lower)
         
