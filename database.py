@@ -1,12 +1,16 @@
 import sqlite3
 from datetime import datetime, timedelta
 
+# Cấu hình tên cơ sở dữ liệu
 DB_NAME = "schedule.db"
 
 def init_db():
+    """
+    Khởi tạo cơ sở dữ liệu và bảng 'events' nếu chưa tồn tại.
+    Cấu trúc bảng gồm: id, tên sự kiện, thời gian bắt đầu/kết thúc, địa điểm, nhắc nhở.
+    """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # [CẬP NHẬT] Thêm cột end_time vào bảng
     c.execute('''
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,8 +25,14 @@ def init_db():
     conn.close()
 
 def add_event(data):
+    """
+    Thêm một sự kiện mới vào database.
+    data (dict): Dictionary chứa thông tin sự kiện (event, start_time, end_time, location, reminder_minutes).
+    """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    
+    # Chỉ lưu nếu có thời gian bắt đầu hợp lệ
     if data.get('start_time'):
         c.execute('''
             INSERT INTO events (event_name, start_time, end_time, location, reminder_minutes)
@@ -30,7 +40,7 @@ def add_event(data):
         ''', (
             data.get('event', 'Sự kiện không tên'),
             data.get('start_time'),
-            data.get('end_time'), # Có thể là None
+            data.get('end_time'), # Chấp nhận giá trị None 
             data.get('location', ''),
             data.get('reminder_minutes', 0)
         ))
@@ -38,15 +48,21 @@ def add_event(data):
     conn.close()
 
 def get_all_events():
+    """
+    Lấy danh sách toàn bộ sự kiện, sắp xếp theo thời gian bắt đầu tăng dần.
+    Returns: list - Danh sách các row dữ liệu từ database.
+    """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # [CẬP NHẬT] Lấy đủ 6 cột bao gồm end_time
     c.execute("SELECT id, event_name, start_time, end_time, location, reminder_minutes FROM events ORDER BY start_time ASC")
     rows = c.fetchall()
     conn.close()
     return rows
 
 def delete_event(event_id):
+    """
+    Xóa sự kiện dựa trên ID.
+    """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute("DELETE FROM events WHERE id=?", (event_id,))
@@ -54,7 +70,9 @@ def delete_event(event_id):
     conn.close()
 
 def update_event(event_id, new_name, new_start_time, new_end_time, new_location, new_remind):
-    # (Để đơn giản, tạm thời update chưa xử lý end_time, giữ nguyên logic cũ hoặc bạn có thể tự bổ sung)
+    """
+    Cập nhật thông tin của một sự kiện đã tồn tại.
+    """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute('''
@@ -65,43 +83,44 @@ def update_event(event_id, new_name, new_start_time, new_end_time, new_location,
     conn.commit()
     conn.close()
 
-# --- [SỬA LẠI] HÀM KIỂM TRA XUNG ĐỘT (HIỂN THỊ TẤT CẢ SỰ KIỆN TRÙNG) ---
 def check_overlap(new_start_iso, new_end_iso=None):
     """
-    Kiểm tra xem thời gian mới có bị trùng với sự kiện đã có không.
-    Trả về: (Có trùng không?, Danh sách tên các sự kiện bị trùng)
+    Kiểm tra xung đột lịch trình (Conflict Detection).
+    Sự kiện A và B trùng nhau khi: (StartA < EndB) và (EndA > StartB).
+
+    new_start_iso (str): Thời gian bắt đầu dự kiến (ISO Format).
+    new_end_iso (str, optional): Thời gian kết thúc dự kiến.
+
+    Returns: tuple: (bool, list) - (Có trùng không, Danh sách tên các sự kiện bị trùng).
     """
     events = get_all_events()
-    conflicting_events = [] # [MỚI] Danh sách chứa tên các sự kiện bị trùng
+    conflicting_events = [] 
     
-    # Parse thời gian mới
     try:
         new_start = datetime.fromisoformat(new_start_iso)
-        # Nếu không có end_time, mặc định sự kiện kéo dài 60 phút để check
+        # Nếu không có thời gian kết thúc, mặc định sự kiện kéo dài 60 phút để kiểm tra va chạm
         new_end = datetime.fromisoformat(new_end_iso) if new_end_iso else new_start + timedelta(minutes=60)
     except ValueError:
-        return False, [] # Không check được nếu format sai
+        return False, [] 
 
     for ev in events:
-        # Cấu trúc ev trả về từ get_all_events: 
-        # (0: id, 1: event_name, 2: start_time, 3: end_time, 4: location, 5: reminder_minutes)
-        
+        # Giải nén tuple dữ liệu từ DB
+        # ev: (0: id, 1: name, 2: start, 3: end, 4: loc, 5: remind)
         existing_start_iso = ev[2]
         existing_end_iso = ev[3]  
         name = ev[1]
 
         try:
             existing_start = datetime.fromisoformat(existing_start_iso)
-            # Nếu sự kiện cũ không có end_time, cũng mặc định là 60 phút
+            # Tương tự, nếu sự kiện cũ không có end_time, giả định dài 60 phút
             existing_end = datetime.fromisoformat(existing_end_iso) if existing_end_iso else existing_start + timedelta(minutes=60)
 
-            # Logic kiểm tra giao nhau: (StartA < EndB) và (EndA > StartB)
+            # Kiểm tra giao nhau
             if new_start < existing_end and new_end > existing_start:
-                conflicting_events.append(name) # [MỚI] Thêm vào danh sách thay vì return ngay
+                conflicting_events.append(name)
         except (ValueError, TypeError):
             continue
 
-    # [MỚI] Trả về True nếu danh sách không rỗng
     if conflicting_events:
         return True, conflicting_events
         
