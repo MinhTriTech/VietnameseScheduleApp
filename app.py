@@ -20,34 +20,99 @@ if 'recent_added' not in st.session_state:
     st.session_state['recent_added'] = []
 
 # ---------------------------------------------------------
-# PHẦN 1: HỆ THỐNG NHẮC NHỞ (GIỮ NGUYÊN)
+# PHẦN 1: HỆ THỐNG NHẮC NHỞ (ĐÃ NÂNG CẤP)
 # ---------------------------------------------------------
+
+# Biến global cho thread (Thay set bằng dict để lưu trạng thái)
+# Cấu trúc: { event_id: "timestamp_string" }
+notified_state = {} 
+
 def check_reminders_loop():
     while True:
         try:
             events = get_all_events()
             now = datetime.now()
+            
+            # Danh sách các ID hiện có trong DB (dùng để dọn dẹp rác)
+            current_db_ids = set()
+
             for ev in events:
-                ev_name, time_str, remind_min = ev[1], ev[2], ev[5] if ev[5] else 0
+                # Cấu trúc ev: (0: id, 1: event_name, 2: start_time, 3: end_time, 4: loc, 5: remind)
+                ev_id = ev[0]
+                ev_name = ev[1]
+                time_str = ev[2]
+                remind_min = ev[5] if ev[5] else 0
+                loc = ev[4] if ev[4] else ""
+                
+                current_db_ids.add(ev_id)
+
                 if time_str:
                     event_time = datetime.fromisoformat(time_str)
                     remind_time = event_time - timedelta(minutes=remind_min)
-                    if 0 <= (now - remind_time).total_seconds() <= 35:
-                        msg = f"Sắp đến: {ev_name}\nLúc: {event_time.strftime('%H:%M')}"
+                    
+                    # Tính khoảng cách thời gian (giây)
+                    diff_seconds = (now - remind_time).total_seconds()
+                    
+                    # Tạo "chữ ký" duy nhất cho trạng thái nhắc nhở này
+                    # Nếu người dùng đổi giờ (time_str) hoặc đổi phút nhắc (remind_min), chữ ký sẽ thay đổi
+                    current_signature = f"{time_str}_{remind_min}"
+
+                    # LOGIC KIỂM TRA MỚI:
+                    # 1. Đúng thời điểm (trong vòng 60s)
+                    # 2. VÀ (Chưa từng báo ID này HOẶC Đã báo nhưng thông tin giờ/nhắc nhở đã bị thay đổi)
+                    if 0 <= diff_seconds <= 60:
+                        last_notified_sig = notified_state.get(ev_id)
                         
-                        # Chỉ dùng MessageBox trên Windows
-                        if platform.system() == "Windows":
-                            ctypes.windll.user32.MessageBoxW(0, msg, "⏰ NHẮC LỊCH", 0x40 | 0x1)
-                        else:
-                            print(f"ALARM: {msg}") # Log ra terminal nếu không phải Windows
+                        if last_notified_sig != current_signature:
+                            location_txt = f"\nTại: {loc}" if loc else ""
+                            msg = f"Sự kiện: {ev_name}{location_txt}\nDiễn ra lúc: {event_time.strftime('%H:%M')}"
+                            
+                            # Chỉ dùng MessageBox trên Windows
+                            if platform.system() == "Windows":
+                                flags = 0x40 | 0x1000 | 0x40000 | 0x10000
+                                ctypes.windll.user32.MessageBoxW(0, msg, "⏰ NHẮC LỊCH (QUAN TRỌNG)", flags)
+                            else:
+                                print(f"ALARM: {msg}") 
+                            
+                            # Cập nhật trạng thái đã nhắc cho ID này với chữ ký mới
+                            notified_state[ev_id] = current_signature
+            
+            # Dọn dẹp bộ nhớ: Xóa các key trong notified_state nếu ID đó không còn trong DB (đã bị xóa)
+            # Giúp dictionary không bị phình to vô hạn nếu chạy lâu dài
+            for old_id in list(notified_state.keys()):
+                if old_id not in current_db_ids:
+                    del notified_state[old_id]
+            
         except Exception:
             pass
-        time.sleep(30)
+        
+        # Delay 5 giây
+        time.sleep(5)
 
-if 'monitor_started' not in st.session_state:
-    t = threading.Thread(target=check_reminders_loop, daemon=True)
+# ... (Đoạn hàm check_reminders_loop giữ nguyên) ...
+
+# ---------------------------------------------------------
+# KHỞI TẠO LUỒNG CHẠY NGẦM (FIX LỖI SPAM THREAD)
+# ---------------------------------------------------------
+# Đặt tên riêng cho thread để nhận diện
+THREAD_NAME = "ScheduleReminderThread"
+
+# Kiểm tra trong toàn bộ process xem có thread nào tên như vậy đang chạy không
+is_running = False
+for t in threading.enumerate():
+    if t.name == THREAD_NAME:
+        is_running = True
+        break
+
+if not is_running:
+    # Nếu chưa chạy thì mới khởi tạo
+    t = threading.Thread(target=check_reminders_loop, name=THREAD_NAME, daemon=True)
     t.start()
-    st.session_state['monitor_started'] = True
+    print("--- ✅ Thread Nhắc nhở đã khởi động ---")
+else:
+    print("--- ⚠️ Thread Nhắc nhở đang chạy, bỏ qua khởi tạo lại ---")
+
+# (Bỏ đoạn if 'monitor_started' not in st.session_state cũ đi)
 
 # ---------------------------------------------------------
 # PHẦN 2: CẤU HÌNH GIAO DIỆN & CSS (TỐI ƯU ONE-SCREEN)
@@ -155,36 +220,43 @@ with c1:
                     with st.spinner("⏳ Đang xử lý..."):
                         extracted_data = nlp.process(user_input)
                     
-                    if extracted_data.get('start_time'):
-                        event_time = datetime.fromisoformat(extracted_data['start_time'])
-                        now = datetime.now()
+                    # [MỚI] Ưu tiên kiểm tra lỗi cụ thể từ NLP trả về trước
+                    if extracted_data.get('error'):
+                        st.error(f"{extracted_data['error']}")
+                    
+                    # ... (Phần hiển thị lỗi extracted_data.get('error') giữ nguyên) ...
+                    
+                    elif extracted_data.get('start_time'):
+                        # event_time = datetime.fromisoformat(extracted_data['start_time']) # <-- Dòng này không cần check quá khứ nữa
                         
-                        # Import hàm check conflict mới
+                        # Import hàm check conflict
                         from database import check_overlap
                         is_conflict, conflict_name = check_overlap(extracted_data['start_time'], extracted_data.get('end_time'))
                         
-                        # LOGIC KIỂM TRA: Quá khứ HOẶC Trùng lịch
                         warning_msg = ""
-                        if event_time < now:
-                            warning_msg = f"⚠️ Sự kiện này đã qua: **{event_time.strftime('%H:%M %d-%m-%Y')}**"
+                        # [ĐÃ XÓA] Đoạn check if event_time < now ...
                         
                         if is_conflict:
-                            conflict_txt = f"\n\n⛔ **TRÙNG LỊCH:** Đang cấn với sự kiện **'{conflict_name}'**."
+                            # [MỚI] Xử lý hiển thị danh sách sự kiện trùng
+                            # conflict_names bây giờ là một list (VD: ['Họp A', 'Họp B'])
+                            # Nối chúng lại thành chuỗi: "Họp A, Họp B"
+                            names_str = ", ".join([f"**'{n}'**" for n in conflict_name])
+                            
+                            conflict_txt = f"\n\n⛔ **TRÙNG LỊCH:** Đang cấn với các sự kiện: {names_str}."
                             warning_msg += conflict_txt
                         
-                        # Nếu có cảnh báo (Quá khứ hoặc Trùng) -> Đưa vào Pending để xác nhận
+                        # ... (Giữ nguyên logic conflict) ...
+                        
                         if warning_msg:
-                            extracted_data['warning_msg'] = warning_msg # Lưu lời nhắc để hiển thị
+                            extracted_data['warning_msg'] = warning_msg
                             st.session_state['pending_event'] = extracted_data
                             st.rerun()
                         else:
-                            # Tương lai & Không trùng -> Lưu luôn
                             add_event(extracted_data)
-                            # ... (Giữ nguyên phần thêm vào recent_added) ...
                             new_card = {
                                 "event": extracted_data.get('event'),
                                 "start_time": extracted_data.get('start_time'),
-                                "end_time": extracted_data.get('end_time'), # Thêm dòng này
+                                "end_time": extracted_data.get('end_time'),
                                 "location": extracted_data.get('location'),
                                 "reminder_minutes": extracted_data.get('reminder_minutes')
                             }
@@ -192,16 +264,86 @@ with c1:
                             st.success(f"✅ Xong: {extracted_data['event']}")
                             time.sleep(0.5)
                             st.rerun()
+                            
                     else:
-                        st.error("⚠️ Không xác định được thời gian!")
+                        # Trường hợp không có lỗi cụ thể nhưng cũng không có start_time (VD: nhập "Đi chơi")
+                        st.error("Không xác định được thời gian! Vui lòng nhập rõ ngày giờ.")
 
     # Hiển thị số lượng sự kiện nhỏ gọn
-    st.caption(f"🗓️ Sự kiện sắp tới: **{len(db_events)}**")
+    # [CẬP NHẬT] Tính toán chỉ đếm sự kiện trong tương lai
+    now = datetime.now()
+    future_count = 0
+    for ev in db_events:
+        # ev[2] là start_time
+        if ev[2]:
+            try:
+                ev_time = datetime.fromisoformat(ev[2])
+                # Chỉ đếm nếu thời gian bắt đầu lớn hơn thời gian hiện tại
+                if ev_time > now:
+                    future_count += 1
+            except ValueError:
+                continue
+
+    # Hiển thị số lượng sự kiện thực tế sắp tới
+    # ... (Đoạn code đếm future_count phía trên giữ nguyên) ...
+    st.caption(f"🗓️ Sự kiện sắp tới: **{future_count}**")
+
+    # --- [MỚI] ĐỒNG HỒ REAL-TIME (Dùng HTML/JS để nhảy giây) ---
+    # Styles: Font chữ hệ thống, căn chỉnh gọn gàng
+    clock_html = """
+    <div style="
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        padding: 10px 0px;
+        text-align: left;
+    ">
+        <div style="
+            font-size: 2.2em; 
+            font-weight: 700; 
+            color: #FF4B4B; /* Màu đỏ chủ đạo của Streamlit */
+            line-height: 1;
+        ">
+            <span id="time">--:--:--</span>
+        </div>
+        <div style="
+            font-size: 0.9em; 
+            color: #555; 
+            margin-top: 5px; 
+            text-transform: capitalize;
+            font-weight: 500;
+        ">
+            <span id="date">...</span>
+        </div>
+    </div>
+
+    <script>
+    function updateClock() {
+        const now = new Date();
+        
+        // Cấu hình định dạng giờ Việt Nam
+        const optionsTime = { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        const optionsDate = { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' };
+        
+        // Lấy giờ theo locale vi-VN
+        const timeStr = now.toLocaleTimeString('vi-VN', optionsTime);
+        const dateStr = now.toLocaleDateString('vi-VN', optionsDate);
+
+        document.getElementById('time').innerText = timeStr;
+        document.getElementById('date').innerText = dateStr;
+    }
+    
+    // Cập nhật mỗi 1000ms (1 giây)
+    setInterval(updateClock, 1000);
+    updateClock(); // Chạy ngay lần đầu
+    </script>
+    """
+    
+    # Render HTML với chiều cao cố định để không bị thanh cuộn
+    components.html(clock_html, height=100)
 
     # Hiển thị các mục vừa thêm nhanh (nằm dưới form)
     if st.session_state.get('recent_added'):
         st.markdown("---")
-        st.caption("🔔 Mục vừa thêm (Quick-add)")
+        st.caption("Mục vừa thêm")
         # Hiển thị mới nhất ở trên
         for card in reversed(st.session_state['recent_added']):
             with st.container():
@@ -223,18 +365,31 @@ with c2:
     with tab_calendar:
         calendar_events = []
         for ev in db_events:
-            # Chỉ hiển thị nếu có thời gian (ev[2] là start_time)
-            if ev[2]: 
-                calendar_events.append({
+            # Cấu trúc ev sau khi sửa DB: 
+            # 0: id, 1: name, 2: start, 3: end, 4: loc, 5: remind
+            
+            if ev[2]: # Nếu có start_time
+                # Tạo title hiển thị: "Tên sự kiện (Địa điểm)"
+                # Lưu ý: FullCalendar sẽ tự động ghép giờ vào trước Title
+                event_title = f"{ev[1]}"
+                if ev[4]: # Nếu có địa điểm thì thêm vào sau tên
+                    event_title += f" ({ev[4]})"
+
+                event_item = {
                     "id": ev[0],
-                    "title": f"{ev[1]} ({ev[3]})" if ev[3] else ev[1],
+                    "title": event_title,
                     "start": ev[2],
-                    # Tô màu đỏ nếu là sự kiện "họp", ngược lại màu xanh
                     "backgroundColor": "#3788d8" if "họp" not in ev[1].lower() else "#d8374d",
                     "borderColor": "transparent"
-                })
+                }
+                
+                # [MỚI] Thêm thời gian kết thúc nếu có
+                # FullCalendar sẽ tự động hiển thị dạng "09:00 - 10:30 Tên sự kiện"
+                if ev[3]: 
+                    event_item["end"] = ev[3]
+                
+                calendar_events.append(event_item)
         
-        # Chuyển đổi list Python sang chuỗi JSON để JS đọc được
         events_json = json.dumps(calendar_events)
 
         calendar_html = f"""
@@ -251,9 +406,10 @@ with c2:
                     .fc {{ font-size: 0.85em; }}
                     .fc-header-toolbar {{ margin-bottom: 0.5em !important; }}
                     .fc-toolbar-title {{ font-size: 1.1em !important; }}
-                    
-                    /* Tùy chỉnh nút bấm cho gọn */
                     .fc-button {{ padding: 0.2em 0.5em !important; }}
+                    
+                    /* Tùy chỉnh hiển thị sự kiện trong Month View để hiện cả giờ kết thúc */
+                    .fc-event-time {{ font-weight: bold; margin-right: 4px; }}
                 </style>
             </head>
             <body>
@@ -264,25 +420,30 @@ with c2:
                         var calendar = new FullCalendar.Calendar(calendarEl, {{
                             locale: 'vi',
                             initialView: 'dayGridMonth',
-                            // [CẬP NHẬT] Thêm 'timeGridDay' vào danh sách nút bên phải
                             headerToolbar: {{ 
                                 left: 'prev,next today', 
                                 center: 'title', 
-                                right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek' 
+                                right: 'dayGridMonth,timeGridWeek,timeGridDay' 
                             }},
                             buttonText: {{
-                                day: 'Ngày',    // Đổi tên hiển thị nút 'timeGridDay' thành 'Ngày'
+                                day: 'Ngày',
                                 month: 'Tháng',
                                 week: 'Tuần',
-                                list: 'Lịch biểu'
                             }},
                             events: {events_json},
                             height: '100%', 
                             expandRows: true,
-                            nowIndicator: true, // Hiển thị vạch đỏ chỉ giờ hiện tại
-                            eventTimeFormat: {{ hour: '2-digit', minute: '2-digit', hour12: false }},
-                            slotMinTime: "00:00:00", // Bắt đầu lịch ngày từ 0h sáng
-                            slotMaxTime: "23:59:59"  // Kết thúc lúc 11h59 đêm
+                            nowIndicator: true,
+                            // [QUAN TRỌNG] Cấu hình hiển thị giờ
+                            eventTimeFormat: {{
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false,
+                                meridiem: false
+                            }},
+                            displayEventEnd: true, // Ép hiển thị giờ kết thúc (VD: 09:00 - 10:00)
+                            slotMinTime: "00:00:00",
+                            slotMaxTime: "23:59:59"
                         }});
                         calendar.render();
                     }});
@@ -290,7 +451,6 @@ with c2:
             </body>
         </html>
         """
-        # Hiển thị lịch
         components.html(calendar_html, height=500, scrolling=False)
 
     # --- TAB 2: DANH SÁCH & IMPORT/EXPORT (Chỉ Xem & Nhập xuất) ---
@@ -373,7 +533,7 @@ with c2:
         # HIỂN THỊ DANH SÁCH (READ-ONLY)
         if db_events:
             st.markdown("#### 📋 Danh sách sự kiện")
-            search_term = st.text_input("🔍 Tìm nhanh", placeholder="Nhập từ khóa...", label_visibility="collapsed")
+            search_term = st.text_input("🔍 Tìm nhanh", placeholder="Nhập từ khóa... (tên sự kiện hoặc ngày bắt đầu hoặc địa điểm)", label_visibility="collapsed")
             
             # [FIX] Thêm cột "Thời gian kết thúc" vào cuối danh sách columns
             df = pd.DataFrame(db_events, columns=["ID", "Sự kiện", "Thời gian bắt đầu", "Thời gian kết thúc", "Địa điểm", "Nhắc (phút)"])
@@ -385,7 +545,11 @@ with c2:
             )
 
             if search_term:
-                df = df[df["Sự kiện"].str.contains(search_term, case=False, na=False)]
+                df = df[
+                    df["Sự kiện"].str.contains(search_term, case=False, na=False) |
+                    df["Thời gian bắt đầu"].str.contains(search_term, case=False, na=False) |
+                    df["Địa điểm"].str.contains(search_term, case=False, na=False)
+                ]
 
             st.dataframe(
                 df[["ID", "Sự kiện", "Thời gian bắt đầu", "Thời gian kết thúc", "Địa điểm", "Nhắc (phút)"]], 
@@ -423,14 +587,49 @@ with c2:
                     
                     c_e1, c_e2 = st.columns(2)
                     new_name = c_e1.text_input("Tên sự kiện", value=current_row["Sự kiện"])
-                    new_loc = c_e2.text_input("Địa điểm", value=current_row["Địa điểm"] if current_row["Địa điểm"] else "")
+                    
+                    # Xử lý an toàn cho Địa điểm
+                    val_loc = current_row["Địa điểm"]
+                    safe_loc = val_loc if pd.notna(val_loc) and val_loc else ""
+                    new_loc = c_e2.text_input("Địa điểm", value=safe_loc)
                     
                     c_e3, c_e4 = st.columns(2)
-                    new_start_time = c_e3.text_input("Thời gian bắt đầu (Ví dụ: 2025-12-05T14:30)", value=current_row["Thời gian bắt đầu"], help="Format: YYYY-MM-DDTHH:MM:SS")
-                    new_end_time = c_e4.text_input("Thời gian kết thúc (Ví dụ: 2025-12-05T15:30)", value=current_row["Thời gian kết thúc"], help="Format: YYYY-MM-DDTHH:MM:SS")
+                    
+                    # --- [LOGIC MỚI] XỬ LÝ HIỂN THỊ THỜI GIAN VIỆT NAM ---
+                    
+                    # 1. Xử lý Start Time (ISO -> VN Format)
+                    try:
+                        db_start_iso = current_row["Thời gian bắt đầu"]
+                        # Chuyển từ ISO sang datetime object
+                        start_dt_obj = datetime.fromisoformat(db_start_iso)
+                        # Format thành chuỗi dễ đọc: 14:30 05-12-2025
+                        start_val_display = start_dt_obj.strftime("%H:%M %d-%m-%Y")
+                    except (ValueError, TypeError):
+                        start_val_display = ""
+
+                    new_start_time_vn = c_e3.text_input(
+                        "Thời gian bắt đầu", 
+                        value=start_val_display, 
+                        help="Nhập theo định dạng: Giờ:Phút Ngày-Tháng-Năm (VD: 14:30 05-12-2025)"
+                    )
+                    
+                    # 2. Xử lý End Time (ISO -> VN Format)
+                    val_end = current_row["Thời gian kết thúc"]
+                    end_val_display = ""
+                    if pd.notna(val_end) and val_end:
+                        try:
+                            end_dt_obj = datetime.fromisoformat(val_end)
+                            end_val_display = end_dt_obj.strftime("%H:%M %d-%m-%Y")
+                        except ValueError:
+                            pass
+                    
+                    new_end_time_vn = c_e4.text_input(
+                        "Thời gian kết thúc (nếu có)", 
+                        value=end_val_display, 
+                        help="Để trống nếu không có. Định dạng: HH:MM DD-MM-YYYY"
+                    )
                     
                     c_e5, c_e6 = st.columns(2)
-                    # [FIX] Kiểm tra nếu giá trị là NaN thì gán bằng 0 để tránh lỗi crash
                     val_remind = current_row["Nhắc (phút)"]
                     safe_remind = int(val_remind) if pd.notna(val_remind) else 0
                     
@@ -440,21 +639,41 @@ with c2:
                     if st.form_submit_button("Lưu thay đổi", type="primary", use_container_width=True):
                         from database import update_event
                         try:
-                            datetime.fromisoformat(new_start_time)
-                            datetime.fromisoformat(new_end_time)
-                            update_event(selected_id, new_name, new_start_time, new_end_time, new_loc, new_remind)
-                            st.success("✅ Đã cập nhật thành công!")
+                            # --- [LOGIC MỚI] VALIDATE & CONVERT NGƯỢC VỀ ISO ---
+                            
+                            # 1. Validate & Convert Start Time
+                            # Dùng strptime để ép kiểu theo format Việt Nam
+                            parsed_start = datetime.strptime(new_start_time_vn, "%H:%M %d-%m-%Y")
+                            final_start_iso = parsed_start.isoformat()
+                            
+                            # 2. Validate & Convert End Time (nếu có nhập)
+                            final_end_iso = None
+                            if new_end_time_vn and new_end_time_vn.strip():
+                                parsed_end = datetime.strptime(new_end_time_vn, "%H:%M %d-%m-%Y")
+                                
+                                # Kiểm tra logic: End phải lớn hơn Start
+                                if parsed_end <= parsed_start:
+                                    st.error("❌ Lỗi: Thời gian kết thúc phải diễn ra sau thời gian bắt đầu!")
+                                    st.stop() # Dừng xử lý
+                                    
+                                final_end_iso = parsed_end.isoformat()
+                            
+                            # 3. Lưu vào DB (Lúc này đã là chuẩn ISO)
+                            update_event(selected_id, new_name, final_start_iso, final_end_iso, new_loc, new_remind)
+                            st.toast("Đã cập nhật thành công!", icon="✅")
                             time.sleep(2)
                             st.rerun()
+                            
                         except ValueError:
-                            st.error("❌ Lỗi: Thời gian không đúng định dạng ISO.")
-                
+                            st.error("❌ Lỗi định dạng ngày giờ! Vui lòng nhập đúng mẫu: HH:MM DD-MM-YYYY (Ví dụ: 09:30 06-12-2025)")
+
                 st.markdown("<div style='height: 10px'></div>", unsafe_allow_html=True)
                 
                 # Nút Xóa (Để ngoài form)
                 col_del_1, col_del_2 = st.columns([0.7, 0.3])
                 with col_del_2:
                     if st.button("Xóa sự kiện này", type="secondary", use_container_width=True):
+                         from database import delete_event
                          delete_event(selected_id)
                          st.toast("Đã xóa sự kiện!", icon="🗑️")
                          time.sleep(2)

@@ -65,31 +65,44 @@ def update_event(event_id, new_name, new_start_time, new_end_time, new_location,
     conn.commit()
     conn.close()
 
-# --- [MỚI] HÀM KIỂM TRA XUNG ĐỘT ---
+# --- [SỬA LẠI] HÀM KIỂM TRA XUNG ĐỘT (HIỂN THỊ TẤT CẢ SỰ KIỆN TRÙNG) ---
 def check_overlap(new_start_iso, new_end_iso=None):
     """
     Kiểm tra xem thời gian mới có bị trùng với sự kiện đã có không.
-    Trả về: (Có trùng không?, Tên sự kiện bị trùng)
+    Trả về: (Có trùng không?, Danh sách tên các sự kiện bị trùng)
     """
     events = get_all_events()
+    conflicting_events = [] # [MỚI] Danh sách chứa tên các sự kiện bị trùng
     
     # Parse thời gian mới
-    new_start = datetime.fromisoformat(new_start_iso)
-    # Nếu không có end_time, mặc định sự kiện kéo dài 60 phút để check
-    new_end = datetime.fromisoformat(new_end_iso) if new_end_iso else new_start + timedelta(minutes=60)
+    try:
+        new_start = datetime.fromisoformat(new_start_iso)
+        # Nếu không có end_time, mặc định sự kiện kéo dài 60 phút để check
+        new_end = datetime.fromisoformat(new_end_iso) if new_end_iso else new_start + timedelta(minutes=60)
+    except ValueError:
+        return False, [] # Không check được nếu format sai
 
     for ev in events:
-        # ev cấu trúc: (id, name, start, loc, remind, end)
+        # Cấu trúc ev trả về từ get_all_events: 
+        # (0: id, 1: event_name, 2: start_time, 3: end_time, 4: location, 5: reminder_minutes)
+        
         existing_start_iso = ev[2]
-        existing_end_iso = ev[5]
+        existing_end_iso = ev[3]  
         name = ev[1]
 
-        existing_start = datetime.fromisoformat(existing_start_iso)
-        # Nếu sự kiện cũ không có end_time, cũng mặc định là 60 phút
-        existing_end = datetime.fromisoformat(existing_end_iso) if existing_end_iso else existing_start + timedelta(minutes=60)
+        try:
+            existing_start = datetime.fromisoformat(existing_start_iso)
+            # Nếu sự kiện cũ không có end_time, cũng mặc định là 60 phút
+            existing_end = datetime.fromisoformat(existing_end_iso) if existing_end_iso else existing_start + timedelta(minutes=60)
 
-        # Logic kiểm tra giao nhau: (StartA < EndB) và (EndA > StartB)
-        if new_start < existing_end and new_end > existing_start:
-            return True, name # Có xung đột với sự kiện 'name'
+            # Logic kiểm tra giao nhau: (StartA < EndB) và (EndA > StartB)
+            if new_start < existing_end and new_end > existing_start:
+                conflicting_events.append(name) # [MỚI] Thêm vào danh sách thay vì return ngay
+        except (ValueError, TypeError):
+            continue
 
-    return False, None
+    # [MỚI] Trả về True nếu danh sách không rỗng
+    if conflicting_events:
+        return True, conflicting_events
+        
+    return False, []
