@@ -166,50 +166,55 @@ with c1:
             user_input = st.text_input("Input", placeholder="VD: Họp 9h sáng nay...", label_visibility="collapsed")
             submitted = st.form_submit_button("Thêm", use_container_width=True, type="primary")
             
-            if submitted and user_input:
-                with st.spinner("⏳ Đang xử lý..."):
-                    extracted_data = nlp.process(user_input)
-                
-                # Kiểm tra lỗi từ NLP (bao gồm lỗi quá khứ, lỗi sai format...)
-                if extracted_data.get('error'):
-                    st.error(f"⛔ {extracted_data['error']}")
-                
-                # Xử lý thành công
-                elif extracted_data.get('start_time'):
-                    
-                    # Kiểm tra trùng lịch (Chỉ để cảnh báo không chặn việc lưu)
-                    from database import check_overlap
-                    is_conflict, conflict_names = check_overlap(extracted_data['start_time'], extracted_data.get('end_time'))
-                    
-                    # Lưu trực tiếp vào database
-                    add_event(extracted_data)
-                    
-                    # Cập nhật danh sách "Mục vừa thêm"
-                    new_card = {
-                        "event": extracted_data.get('event'),
-                        "start_time": extracted_data.get('start_time'),
-                        "end_time": extracted_data.get('end_time'),
-                        "location": extracted_data.get('location'),
-                        "reminder_minutes": extracted_data.get('reminder_minutes')
-                    }
-                    st.session_state['recent_added'].append(new_card)
-                    
-                    # Hiển thị thông báo kết quả
-                    if is_conflict:
-                        # Nếu trùng lịch: Hiện cảnh báo màu vàng nhưng vẫn báo thành công
-                        names_str = ", ".join([f"'{n}'" for n in conflict_names])
-                        st.warning(f"Đã lưu, thời gian trùng với: {names_str}")
-                        # Tăng thời gian sleep lên chút để người dùng kịp đọc cảnh báo
-                        time.sleep(4)
-                    else:
-                        # Nếu thành công: Hiện màu xanh
-                        st.success(f"Đã thêm: {extracted_data['event']}")
-                        time.sleep(0.8)
-                        
-                    st.rerun()
-                        
+            # Kiểm tra submitted trước
+            if submitted:
+                if not user_input.strip():
+                    st.warning("Vui lòng nhập nội dung sự kiện!")
                 else:
-                    st.error("⚠️ Không xác định được thời gian! Vui lòng nhập rõ ngày giờ.")
+                    # Có nội dung thực sự mới xử lý
+                    with st.spinner("⏳ Đang xử lý..."):
+                        extracted_data = nlp.process(user_input)
+                
+                    # Kiểm tra lỗi từ NLP (bao gồm lỗi quá khứ, lỗi sai format...)
+                    if extracted_data.get('error'):
+                        st.error(f"⛔ {extracted_data['error']}")
+                    
+                    # Xử lý thành công
+                    elif extracted_data.get('start_time'):
+                        
+                        # Kiểm tra trùng lịch (Chỉ để cảnh báo không chặn việc lưu)
+                        from database import check_overlap
+                        is_conflict, conflict_names = check_overlap(extracted_data['start_time'], extracted_data.get('end_time'))
+                        
+                        # Lưu trực tiếp vào database
+                        add_event(extracted_data)
+                        
+                        # Cập nhật danh sách "Mục vừa thêm"
+                        new_card = {
+                            "event": extracted_data.get('event'),
+                            "start_time": extracted_data.get('start_time'),
+                            "end_time": extracted_data.get('end_time'),
+                            "location": extracted_data.get('location'),
+                            "reminder_minutes": extracted_data.get('reminder_minutes')
+                        }
+                        st.session_state['recent_added'].append(new_card)
+                        
+                        # Hiển thị thông báo kết quả
+                        if is_conflict:
+                            # Nếu trùng lịch: Hiện cảnh báo màu vàng nhưng vẫn báo thành công
+                            names_str = ", ".join([f"'{n}'" for n in conflict_names])
+                            st.warning(f"Đã lưu, thời gian trùng với: {names_str}")
+                            # Tăng thời gian sleep lên chút để người dùng kịp đọc cảnh báo
+                            time.sleep(4)
+                        else:
+                            # Nếu thành công: Hiện màu xanh
+                            st.success(f"Đã thêm: {extracted_data['event']}")
+                            time.sleep(0.8)
+                            
+                        st.rerun()
+                            
+                    else:
+                        st.error("⚠️ Không xác định được thời gian! Vui lòng nhập rõ ngày giờ.")
 
     # Phần hiển thị thống kê & đồng hồ
     now = datetime.now()
