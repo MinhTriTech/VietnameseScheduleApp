@@ -164,7 +164,7 @@ with c1:
         # Form nhập liệu 
         with st.form("add_form", clear_on_submit=True):
             user_input = st.text_input("Input", placeholder="VD: Họp 9h sáng nay...", label_visibility="collapsed")
-            submitted = st.form_submit_button("Thêm", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("Thêm sự kiện", use_container_width=True, type="primary")
             
             # Kiểm tra submitted trước
             if submitted:
