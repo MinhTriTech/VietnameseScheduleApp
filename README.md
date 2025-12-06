@@ -1,9 +1,6 @@
 # Trợ lý Quản lý Lịch trình Cá nhân (Personal Schedule Assistant)
 
-> **Đồ án Môn học / Chuyên ngành**  
-> **Sinh viên thực hiện:** Ngô Hoàng Minh Trí - 3121410522  
-> **Lớp:** DCT1211  
-> **Giảng viên hướng dẫn:** Nguyễn Tuấn Đăng
+![Demo](images/HomePage.png)
 
 ---
 
