@@ -55,7 +55,7 @@ VietnameseScheduleApp/
 └── README.md             # Tài liệu hướng dẫn
 ```
 
-## 🚀 Hướng dẫn cài đặt & Sử dụng
+## 🚀 Hướng dẫn cài đặt & sử dụng
 
 ### Bước 1: Chuẩn bị môi trường
 Yêu cầu máy tính đã cài đặt **Python** (phiên bản 3.8 trở lên).
