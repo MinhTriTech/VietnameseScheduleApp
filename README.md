@@ -6,7 +6,7 @@
 
 ## 📖 Giới thiệu
 
-**Vietnamese Schedule App** là ứng dụng quản lý lịch trình cá nhân thông minh chạy trên nền tảng Desktop (Localhost). Điểm đặc biệt của ứng dụng là khả năng tích hợp công nghệ **Xử lý ngôn ngữ tự nhiên (NLP)** tiếng Việt, cho phép người dùng thêm sự kiện bằng các câu lệnh tự nhiên thay vì nhập liệu thủ công vào từng ô biểu mẫu.
+**Vietnamese Schedule App** là ứng dụng quản lý lịch trình cá nhân thông minh chạy trên nền tảng Desktop (localhost). Điểm đặc biệt của ứng dụng là khả năng tích hợp công nghệ **Xử lý ngôn ngữ tự nhiên (NLP)** tiếng Việt, cho phép người dùng thêm sự kiện bằng các câu lệnh tự nhiên thay vì nhập liệu thủ công vào từng ô biểu mẫu.
 
 Hệ thống hoạt động độc lập (offline), sử dụng mô hình lai (Hybrid Model) kết hợp giữa Học máy (Underthesea) và Hệ luật (Regex) để trích xuất thông tin chính xác từ câu nói của người dùng.
 
@@ -17,17 +17,17 @@ Hệ thống hoạt động độc lập (offline), sử dụng mô hình lai (H
 - **Trích xuất thông tin tự động:**
   - Tên sự kiện.
   - Thời gian bắt đầu & kết thúc.
-  - Địa điểm (Location).
-  - Thời gian nhắc nhở (Reminder).
+  - Địa điểm (location).
+  - Thời gian nhắc nhở (reminder).
 - **Xử lý thời gian thông minh:** Hiểu các mốc thời gian tương đối như *"sáng mai"*, *"tuần sau"*, *"thứ 2 tới"*, *"hôm qua"* và tự động chuyển đổi sang ngày giờ cụ thể.
 
 ### 2. Quản lý lịch trình
-- **Lịch biểu trực quan:** Tích hợp **FullCalendar**, cho phép xem lịch theo Tháng, Tuần, Ngày.
-- **Thao tác CRUD:** Thêm, Xem danh sách, Chỉnh sửa, Xóa sự kiện.
+- **Lịch biểu trực quan:** Tích hợp **FullCalendar**, cho phép xem lịch theo tháng, tuần, ngày.
+- **Thao tác CRUD:** Thêm, xem danh sách, chỉnh sửa, xóa sự kiện.
 - **Tìm kiếm & Lọc:** Tìm kiếm sự kiện theo từ khóa hoặc thời gian.
 - **Cảnh báo xung đột:** Tự động phát hiện và cảnh báo nếu sự kiện mới trùng giờ với sự kiện đã có.
 
-### 3. Hệ thống nhắc nhở & Lưu trữ
+### 3. Hệ thống nhắc nhở & lưu trữ
 - **Nhắc nhở tự động:** Hệ thống chạy tiến trình ngầm (Background Thread), tự động hiển thị **Pop-up Windows (MessageBox)** khi đến giờ hẹn hoặc giờ nhắc trước.
 - **Lưu trữ cục bộ:** Dữ liệu được lưu an toàn trong `SQLite`, không cần kết nối Internet.
 - **Sao lưu dữ liệu:** Hỗ trợ Xuất (Export) và Nhập (Import) lịch trình qua file `.json`.
@@ -51,7 +51,7 @@ VietnameseScheduleApp/
 ├── nlp_engine.py         # Module NLP: Xử lý chuỗi, Regex, Underthesea
 ├── requirements.txt      # Danh sách thư viện phụ thuộc
 ├── mau_test_case_30_cau.txt # File chứa các câu test mẫu
-├── schedule.db           # File CSDL SQLite (Tự sinh khi chạy app)
+├── schedule.db           # File CSDL SQLite (tự sinh khi chạy app)
 └── README.md             # Tài liệu hướng dẫn
 ```
 
@@ -66,7 +66,7 @@ git clone https://github.com/MinhTriTech/VietnameseScheduleApp.git
 cd VietnameseScheduleApp
 ```
 
-### Bước 3: Tạo và kích hoạt môi trường ảo (Khuyến nghị)
+### Bước 3: Tạo và kích hoạt môi trường ảo (khuyến nghị)
 **Windows:**
 ```bash
 python -m venv venv
