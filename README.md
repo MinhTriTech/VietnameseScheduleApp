@@ -1,4 +1,4 @@
-# Trợ lý Quản lý Lịch trình Cá nhân (Personal Schedule Assistant)
+# Trợ lý quản lý lịch trình cá nhân
 
 ![Demo](images/HomePage.png)
 
