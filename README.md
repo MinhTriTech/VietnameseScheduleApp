@@ -50,7 +50,6 @@ VietnameseScheduleApp/
 ├── database.py           # Module Database: Kết nối SQLite, CRUD, Check trùng lặp
 ├── nlp_engine.py         # Module NLP: Xử lý chuỗi, Regex, Underthesea
 ├── requirements.txt      # Danh sách thư viện phụ thuộc
-├── mau_test_case_30_cau.txt # File chứa các câu test mẫu
 ├── schedule.db           # File CSDL SQLite (tự sinh khi chạy app)
 └── README.md             # Tài liệu hướng dẫn
 ```
